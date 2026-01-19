@@ -57,6 +57,20 @@ async function createNotification(userId, userEmail, type, title, message, relat
     }
 }
 
+// Helper function to calculate distance between two coordinates (Haversine formula)
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c; // Distance in kilometers
+    return distance;
+}
+
 // Login endpoint: validates credentials and returns role for redirect
 app.post('/login', async (req, res) => {
     try {
@@ -389,6 +403,23 @@ app.get('/help-requests/volunteer/:volunteerEmail', async (req, res) => {
     } catch (err) {
         console.error('Error fetching volunteer help requests:', err);
         return res.status(500).json({ message: 'Error fetching help requests' });
+    }
+});
+
+// Get a single help request by ID
+app.get('/help-requests/:requestId', async (req, res) => {
+    try {
+        const { requestId } = req.params;
+        const request = await HelpRequestModel.findById(requestId);
+
+        if (!request) {
+            return res.status(404).json({ message: 'Help request not found' });
+        }
+
+        return res.json(request);
+    } catch (err) {
+        console.error('Error fetching help request:', err);
+        return res.status(500).json({ message: 'Error fetching help request' });
     }
 });
 
@@ -890,6 +921,70 @@ app.get('/volunteers/available', async (req, res) => {
     }
 });
 
+// Find best matched volunteers for a help request based on location and skills
+app.get('/volunteers/best-match', async (req, res) => {
+    try {
+        const { latitude, longitude, category, city, maxDistance } = req.query;
+        
+        if (!latitude || !longitude) {
+            return res.status(400).json({ message: 'Location coordinates are required' });
+        }
+
+        const lat = parseFloat(latitude);
+        const lon = parseFloat(longitude);
+        const maxDist = maxDistance ? parseFloat(maxDistance) : 50; // Default 50 km radius
+
+        let query = { 
+            role: 'volunteer',
+            isAvailable: true 
+        };
+        
+        if (city) {
+            query.city = city;
+        }
+        
+        if (category) {
+            query.skills = category;
+        }
+
+        // Get all available volunteers
+        const volunteers = await UserModel.find(query).select('-password');
+        
+        // Calculate distance for each volunteer and add to result
+        const volunteersWithDistance = volunteers
+            .map(volunteer => {
+                if (volunteer.location && volunteer.location.latitude && volunteer.location.longitude) {
+                    const distance = calculateDistance(
+                        lat, 
+                        lon, 
+                        volunteer.location.latitude, 
+                        volunteer.location.longitude
+                    );
+                    return {
+                        ...volunteer.toObject(),
+                        distance: parseFloat(distance.toFixed(2))
+                    };
+                }
+                return {
+                    ...volunteer.toObject(),
+                    distance: null
+                };
+            })
+            .filter(v => v.distance === null || v.distance <= maxDist)
+            .sort((a, b) => {
+                // Sort by distance (volunteers without location go to end)
+                if (a.distance === null) return 1;
+                if (b.distance === null) return -1;
+                return a.distance - b.distance;
+            });
+
+        return res.json(volunteersWithDistance);
+    } catch (err) {
+        console.error('Error finding best match volunteers:', err);
+        return res.status(500).json({ message: 'Error finding volunteers', error: err.message });
+    }
+});
+
 // Get statistics for dashboard
 app.get('/statistics', async (req, res) => {
     try {
@@ -938,6 +1033,143 @@ app.get('/statistics', async (req, res) => {
     } catch (err) {
         console.error('Error fetching statistics:', err);
         return res.status(500).json({ message: 'Error fetching statistics', error: err.message });
+    }
+});
+
+// Comprehensive analytics endpoint for admin reports
+app.get('/analytics/reports', async (req, res) => {
+    try {
+        const { range } = req.query;
+        
+        // Calculate date filter based on range
+        let dateFilter = {};
+        const now = new Date();
+        
+        if (range === 'today') {
+            dateFilter = {
+                createdAt: {
+                    $gte: new Date(now.setHours(0, 0, 0, 0))
+                }
+            };
+        } else if (range === 'week') {
+            const weekAgo = new Date(now.setDate(now.getDate() - 7));
+            dateFilter = { createdAt: { $gte: weekAgo } };
+        } else if (range === 'month') {
+            const monthAgo = new Date(now.setMonth(now.getMonth() - 1));
+            dateFilter = { createdAt: { $gte: monthAgo } };
+        } else if (range === 'year') {
+            const yearAgo = new Date(now.setFullYear(now.getFullYear() - 1));
+            dateFilter = { createdAt: { $gte: yearAgo } };
+        }
+
+        // Get all help requests with date filter
+        const allRequests = await HelpRequestModel.find(dateFilter);
+        const totalRequests = allRequests.length;
+        const completedRequests = allRequests.filter(r => r.status === 'completed').length;
+        const activeRequests = allRequests.filter(r => ['accepted', 'in-progress'].includes(r.status)).length;
+
+        // Get volunteer statistics
+        const allVolunteers = await UserModel.find({ role: 'volunteer' });
+        const totalVolunteers = allVolunteers.length;
+        const activeVolunteers = allVolunteers.filter(v => v.isAvailable).length;
+
+        // Get requester count
+        const totalRequesters = await UserModel.countDocuments({ role: 'requester' });
+
+        // Status breakdown
+        const statusBreakdown = await HelpRequestModel.aggregate([
+            { $match: dateFilter },
+            { $group: { _id: '$status', count: { $sum: 1 } } },
+            { $project: { status: '$_id', count: 1, _id: 0 } }
+        ]);
+
+        // Category breakdown
+        const categoryBreakdown = await HelpRequestModel.aggregate([
+            { $match: dateFilter },
+            { $group: { _id: '$category', count: { $sum: 1 } } },
+            { $project: { category: '$_id', count: 1, _id: 0 } },
+            { $sort: { count: -1 } }
+        ]);
+
+        // Urgency breakdown
+        const urgencyBreakdown = await HelpRequestModel.aggregate([
+            { $match: dateFilter },
+            { $group: { _id: '$urgency', count: { $sum: 1 } } },
+            { $project: { urgency: '$_id', count: 1, _id: 0 } }
+        ]);
+
+        // City distribution
+        const cityBreakdown = await HelpRequestModel.aggregate([
+            { $match: dateFilter },
+            { $group: { _id: '$requesterCity', count: { $sum: 1 } } },
+            { $project: { city: '$_id', count: 1, _id: 0 } },
+            { $sort: { count: -1 } }
+        ]);
+
+        // Top volunteers with completed request count
+        const topVolunteers = await HelpRequestModel.aggregate([
+            { $match: { ...dateFilter, status: 'completed' } },
+            { $group: { 
+                _id: '$assignedVolunteer.volunteerId',
+                completedCount: { $sum: 1 },
+                volunteerEmail: { $first: '$assignedVolunteer.volunteerEmail' }
+            } },
+            { $sort: { completedCount: -1 } },
+            { $limit: 10 }
+        ]);
+
+        // Enrich top volunteers with user data
+        const enrichedTopVolunteers = await Promise.all(
+            topVolunteers.map(async (vol) => {
+                const user = await UserModel.findById(vol._id).select('name city rating');
+                return {
+                    _id: vol._id,
+                    name: user?.name || 'Unknown',
+                    city: user?.city || 'Unknown',
+                    completedCount: vol.completedCount,
+                    rating: user?.rating || { average: 0, count: 0 }
+                };
+            })
+        );
+
+        // Recent activity (last 10 requests)
+        const recentActivity = await HelpRequestModel.find(dateFilter)
+            .sort({ createdAt: -1 })
+            .limit(10)
+            .select('title requesterName city status createdAt');
+
+        // Calculate average response time (time from creation to acceptance)
+        const acceptedRequests = allRequests.filter(r => r.assignedVolunteer?.acceptedAt);
+        let averageResponseTime = 'N/A';
+        
+        if (acceptedRequests.length > 0) {
+            const totalResponseTime = acceptedRequests.reduce((sum, req) => {
+                const responseTime = new Date(req.assignedVolunteer.acceptedAt) - new Date(req.createdAt);
+                return sum + responseTime;
+            }, 0);
+            const avgMilliseconds = totalResponseTime / acceptedRequests.length;
+            const hours = Math.floor(avgMilliseconds / (1000 * 60 * 60));
+            averageResponseTime = hours < 1 ? '< 1 hour' : `${hours} hours`;
+        }
+
+        return res.json({
+            totalRequests,
+            completedRequests,
+            activeRequests,
+            totalVolunteers,
+            activeVolunteers,
+            totalRequesters,
+            statusBreakdown,
+            categoryBreakdown,
+            urgencyBreakdown,
+            cityBreakdown,
+            topVolunteers: enrichedTopVolunteers,
+            recentActivity,
+            averageResponseTime
+        });
+    } catch (err) {
+        console.error('Error fetching analytics:', err);
+        return res.status(500).json({ message: 'Error fetching analytics', error: err.message });
     }
 });
 

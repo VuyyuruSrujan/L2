@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import ComplaintsManagement from './ComplaintsManagement';
 import ReportView from './ReportView';
+import AnalyticsReports from './AnalyticsReports';
 
 const AdminDashboard = () => {
   const { currentUser, logout } = useAuth();
@@ -59,6 +60,17 @@ const AdminDashboard = () => {
                 } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
               >
                 Reports
+              </button>
+              <button
+                onClick={() => setActiveTab('analytics')}
+                className={`${
+                  activeTab === 'analytics'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+          {activeTab === 'analytics' && <AnalyticsReports />}
+              >
+                Analytics
               </button>
             </nav>
           </div>

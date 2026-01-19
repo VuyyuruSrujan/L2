@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import Notifications from '../Notifications';
+import VolunteerLocationMap from './VolunteerLocationMap';
 
 const RequesterDashboard = () => {
   const { currentUser, logout } = useAuth();
@@ -401,15 +402,24 @@ const RequesterDashboard = () => {
                       </div>
                     </div>
                     {request.assignedVolunteer && (
-                      <div className="mt-4 pt-4 border-t border-gray-200">
-                        <h4 className="font-semibold text-gray-900 mb-2">Assigned Volunteer:</h4>
-                        <div className="bg-blue-50 p-3 rounded">
-                          <p><span className="font-medium">Name:</span> {request.assignedVolunteer.volunteerName}</p>
-                          <p><span className="font-medium">Phone:</span> {request.assignedVolunteer.volunteerPhone}</p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            Accepted: {new Date(request.assignedVolunteer.acceptedAt).toLocaleString()}
-                          </p>
+                      <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
+                        <div>
+                          <h4 className="font-semibold text-gray-900 mb-2">Assigned Volunteer:</h4>
+                          <div className="bg-blue-50 p-3 rounded">
+                            <p><span className="font-medium">Name:</span> {request.assignedVolunteer.volunteerName}</p>
+                            <p><span className="font-medium">Phone:</span> {request.assignedVolunteer.volunteerPhone}</p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Accepted: {new Date(request.assignedVolunteer.acceptedAt).toLocaleString()}
+                            </p>
+                          </div>
                         </div>
+                        
+                        {(request.status === 'in-progress' || request.status === 'accepted') && (
+                          <VolunteerLocationMap 
+                            requestId={request._id}
+                            volunteerInfo={request.assignedVolunteer}
+                          />
+                        )}
                       </div>
                     )}
                   </div>

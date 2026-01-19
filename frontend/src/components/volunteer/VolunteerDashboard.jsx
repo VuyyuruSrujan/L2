@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import Notifications from '../Notifications';
+import LocationTracker from './LocationTracker';
 
 const VolunteerDashboard = () => {
   const { currentUser, logout } = useAuth();
@@ -17,6 +18,7 @@ const VolunteerDashboard = () => {
     category: '',
     city: currentUser?.city || ''
   });
+  const [trackingRequestId, setTrackingRequestId] = useState(null);
 
   useEffect(() => {
     if (activeTab === 'available') {
@@ -95,8 +97,22 @@ const VolunteerDashboard = () => {
     }
   };
 
+  const startLocationTracking = (requestId) => {
+    setTrackingRequestId(requestId);
+  };
+
+  const stopLocationTracking = () => {
+    setTrackingRequestId(null);
+  };
+
   const updateRequestStatus = async (requestId, status) => {
     try {
+      if (status === 'in-progress') {
+        startLocationTracking(requestId);
+      } else if (status === 'completed') {
+        stopLocationTracking();
+      }
+      
       await axios.post(`http://localhost:3000/help-requests/${requestId}/update-status`, {
         status,
         note: `Status updated to ${status} by volunteer`
@@ -395,13 +411,30 @@ const VolunteerDashboard = () => {
                     )}
                     
                     {request.status === 'in-progress' && (
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => updateRequestStatus(request._id, 'completed')}
-                          className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
-                        >
-                          Mark as Completed
-                        </button>
+                      <div className="space-y-4">
+                        {trackingRequestId === request._id && (
+                          <LocationTracker 
+                            requestId={request._id}
+                            isTracking={true}
+                            onStop={stopLocationTracking}
+                          />
+                        )}
+                        {!trackingRequestId && (
+                          <button
+                            onClick={() => startLocationTracking(request._id)}
+                            className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                          >
+                            📍 Start Location Sharing
+                          </button>
+                        )}
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => updateRequestStatus(request._id, 'completed')}
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
+                          >
+                            Mark as Completed
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
