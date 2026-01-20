@@ -4,15 +4,31 @@ import { useNavigate } from 'react-router-dom';
 import ComplaintsView from './ComplaintsView';
 import PaymentView from './PaymentView';
 import FeedbackView from './FeedbackView';
+import Chat from '../Chat';
+import ChatList from '../ChatList';
 
 const CustomerDashboard = () => {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('complaints');
+  
+  // Chat state
+  const [showChat, setShowChat] = useState(false);
+  const [selectedChatUser, setSelectedChatUser] = useState(null);
 
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleSelectChat = (userId, userName) => {
+    setSelectedChatUser({ id: userId, name: userName });
+    setShowChat(true);
+  };
+
+  const handleCloseChat = () => {
+    setShowChat(false);
+    setSelectedChatUser(null);
   };
 
   return (
@@ -74,6 +90,16 @@ const CustomerDashboard = () => {
               >
                 Feedback
               </button>
+              <button
+                onClick={() => setActiveTab('messages')}
+                className={`${
+                  activeTab === 'messages'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+              >
+                💬 Messages
+              </button>
             </nav>
           </div>
         </div>
@@ -82,6 +108,44 @@ const CustomerDashboard = () => {
           {activeTab === 'complaints' && <ComplaintsView />}
           {activeTab === 'payment' && <PaymentView />}
           {activeTab === 'feedback' && <FeedbackView />}
+          {activeTab === 'messages' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1">
+                <ChatList
+                  currentUserId={currentUser.id}
+                  onSelectChat={handleSelectChat}
+                />
+              </div>
+              <div className="lg:col-span-2">
+                {showChat && selectedChatUser ? (
+                  <Chat
+                    currentUserId={currentUser.id}
+                    currentUserModel="Customer"
+                    recipientId={selectedChatUser.id}
+                    recipientName={selectedChatUser.name}
+                    onClose={handleCloseChat}
+                  />
+                ) : (
+                  <div className="bg-white rounded-lg shadow-lg p-12 text-center">
+                    <svg
+                      className="mx-auto h-16 w-16 text-gray-400 mb-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                      />
+                    </svg>
+                    <p className="text-gray-500 text-lg">Select a conversation to start chatting</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

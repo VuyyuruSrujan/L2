@@ -4,6 +4,8 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import Notifications from '../Notifications';
 import VolunteerLocationMap from './VolunteerLocationMap';
+import Chat from '../Chat';
+import ChatList from '../ChatList';
 
 const RequesterDashboard = () => {
   const { currentUser, logout } = useAuth();
@@ -12,6 +14,11 @@ const RequesterDashboard = () => {
   const [helpRequests, setHelpRequests] = useState([]);
   const [statistics, setStatistics] = useState({});
   const [loading, setLoading] = useState(false);
+
+  // Chat state
+  const [showChat, setShowChat] = useState(false);
+  const [selectedChatUser, setSelectedChatUser] = useState(null);
+  const [chatOpenForRequest, setChatOpenForRequest] = useState(null);
 
   // Form state for creating help request
   const [formData, setFormData] = useState({
@@ -129,6 +136,24 @@ const RequesterDashboard = () => {
     navigate('/login');
   };
 
+  const handleSelectChat = (userId, userName) => {
+    setSelectedChatUser({ id: userId, name: userName });
+    setShowChat(true);
+  };
+
+  const handleCloseChat = () => {
+    setShowChat(false);
+    setSelectedChatUser(null);
+  };
+
+  const toggleChatForRequest = (requestId) => {
+    if (chatOpenForRequest === requestId) {
+      setChatOpenForRequest(null);
+    } else {
+      setChatOpenForRequest(requestId);
+    }
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'open': return 'bg-yellow-100 text-yellow-800';
@@ -200,6 +225,16 @@ const RequesterDashboard = () => {
               }`}
             >
               My Requests
+            </button>
+            <button
+              onClick={() => setActiveTab('messages')}
+              className={`py-4 px-2 border-b-2 font-medium ${
+                activeTab === 'messages'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              💬 Messages
             </button>
           </div>
         </div>
@@ -411,8 +446,48 @@ const RequesterDashboard = () => {
                             <p className="text-xs text-gray-500 mt-1">
                               Accepted: {new Date(request.assignedVolunteer.acceptedAt).toLocaleString()}
                             </p>
+                            {request.meetLink && (
+                              <a
+                                href="https://meet.google.com/nyn-ediw-fsg"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-2 inline-flex items-center text-blue-700 hover:text-blue-900 font-semibold text-sm"
+                              >
+                                📞 Join Meet
+                              </a>
+                            )}
                           </div>
                         </div>
+                        
+                        {/* Chat button for assigned volunteers */}
+                        {request.assignedVolunteer && request.assignedVolunteer.volunteerId && (
+                          <div className="mb-4">
+                            <button
+                              onClick={() => toggleChatForRequest(request._id)}
+                              className={`w-full px-4 py-2 rounded-lg transition ${
+                                chatOpenForRequest === request._id
+                                  ? 'bg-gray-600 text-white hover:bg-gray-700'
+                                  : 'bg-blue-600 text-white hover:bg-blue-700'
+                              }`}
+                            >
+                              {chatOpenForRequest === request._id ? '✖ Close Chat' : '💬 Chat with Volunteer'}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Inline Chat */}
+                        {chatOpenForRequest === request._id && request.assignedVolunteer && (
+                          <div className="mb-4">
+                            <Chat
+                              currentUserId={currentUser.id}
+                              currentUserModel="Customer"
+                              recipientId={request.assignedVolunteer.volunteerId}
+                              recipientName={request.assignedVolunteer.volunteerName}
+                              helpRequestId={request._id}
+                              onClose={() => setChatOpenForRequest(null)}
+                            />
+                          </div>
+                        )}
                         
                         {(request.status === 'in-progress' || request.status === 'accepted') && (
                           <VolunteerLocationMap 
@@ -426,6 +501,48 @@ const RequesterDashboard = () => {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Messages Tab */}
+        {activeTab === 'messages' && (
+          <div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1">
+                <ChatList
+                  currentUserId={currentUser.id}
+                  onSelectChat={handleSelectChat}
+                />
+              </div>
+              <div className="lg:col-span-2">
+                {showChat && selectedChatUser ? (
+                  <Chat
+                    currentUserId={currentUser.id}
+                    currentUserModel="Customer"
+                    recipientId={selectedChatUser.id}
+                    recipientName={selectedChatUser.name}
+                    onClose={handleCloseChat}
+                  />
+                ) : (
+                  <div className="bg-white rounded-lg shadow-lg p-12 text-center">
+                    <svg
+                      className="mx-auto h-16 w-16 text-gray-400 mb-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                      />
+                    </svg>
+                    <p className="text-gray-500 text-lg">Select a conversation to start chatting</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </main>

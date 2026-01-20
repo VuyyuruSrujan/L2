@@ -100,7 +100,7 @@ function Landing() {
               Get help or volunteer faster with transparent, trackable requests.
             </h1>
             <p className="text-lg text-slate-700 leading-relaxed">
-              Local Support connects customers who need assistance with nearby volunteers. See status updates in real time, stay safe with verified helpers, and close the loop with feedback.
+              Local Care Connect connects customers who need assistance with nearby volunteers. See status updates in real time, stay safe with verified helpers, and close the loop with feedback.
             </p>
             <div className="flex flex-wrap gap-3">
               <Link

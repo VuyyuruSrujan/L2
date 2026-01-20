@@ -4,6 +4,8 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 import Notifications from '../Notifications';
 import LocationTracker from './LocationTracker';
+import Chat from '../Chat';
+import ChatList from '../ChatList';
 
 const VolunteerDashboard = () => {
   const { currentUser, logout } = useAuth();
@@ -19,6 +21,11 @@ const VolunteerDashboard = () => {
     city: currentUser?.city || ''
   });
   const [trackingRequestId, setTrackingRequestId] = useState(null);
+  
+  // Chat state
+  const [showChat, setShowChat] = useState(false);
+  const [selectedChatUser, setSelectedChatUser] = useState(null);
+  const [chatOpenForRequest, setChatOpenForRequest] = useState(null);
 
   useEffect(() => {
     if (activeTab === 'available') {
@@ -128,6 +135,24 @@ const VolunteerDashboard = () => {
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleSelectChat = (userId, userName) => {
+    setSelectedChatUser({ id: userId, name: userName });
+    setShowChat(true);
+  };
+
+  const handleCloseChat = () => {
+    setShowChat(false);
+    setSelectedChatUser(null);
+  };
+
+  const toggleChatForRequest = (requestId, userId, userName) => {
+    if (chatOpenForRequest === requestId) {
+      setChatOpenForRequest(null);
+    } else {
+      setChatOpenForRequest(requestId);
+    }
   };
 
   const getStatusColor = (status) => {
@@ -254,6 +279,16 @@ const VolunteerDashboard = () => {
               }`}
             >
               My Accepted Requests
+            </button>
+            <button
+              onClick={() => setActiveTab('messages')}
+              className={`py-4 px-2 border-b-2 font-medium ${
+                activeTab === 'messages'
+                  ? 'border-green-600 text-green-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              💬 Messages
             </button>
           </div>
         </div>
@@ -398,7 +433,49 @@ const VolunteerDashboard = () => {
                         <span className="font-semibold">Category:</span> {request.category}
                       </div>
                     </div>
+                    {request.meetLink && (
+                      <div className="mb-4">
+                        <a
+                          href="https://meet.google.com/nyn-ediw-fsg"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center text-blue-700 hover:text-blue-900 font-semibold text-sm"
+                        >
+                          📞 Join Meet
+                        </a>
+                      </div>
+                    )}
                     
+                    {/* Chat button - always visible for accepted requests */}
+                    {(request.status === 'accepted' || request.status === 'in-progress') && (
+                      <div className="mb-4">
+                        <button
+                          onClick={() => toggleChatForRequest(request._id, request.requesterId, request.requesterName)}
+                          className={`w-full px-4 py-2 rounded-lg transition ${
+                            chatOpenForRequest === request._id
+                              ? 'bg-gray-600 text-white hover:bg-gray-700'
+                              : 'bg-blue-600 text-white hover:bg-blue-700'
+                          }`}
+                        >
+                          {chatOpenForRequest === request._id ? '✖ Close Chat' : '💬 Chat with Customer'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Inline Chat */}
+                    {chatOpenForRequest === request._id && (
+                      <div className="mb-4">
+                        <Chat
+                          currentUserId={currentUser.id}
+                          currentUserModel="Volunteer"
+                          recipientId={request.requesterId}
+                          recipientName={request.requesterName}
+                          helpRequestId={request._id}
+                          onClose={() => setChatOpenForRequest(null)}
+                        />
+                      </div>
+                    )}
+
                     {request.status === 'accepted' && (
                       <div className="flex justify-end gap-2">
                         <button
@@ -427,7 +504,7 @@ const VolunteerDashboard = () => {
                             📍 Start Location Sharing
                           </button>
                         )}
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end">
                           <button
                             onClick={() => updateRequestStatus(request._id, 'completed')}
                             className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
@@ -441,6 +518,48 @@ const VolunteerDashboard = () => {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Messages Tab */}
+        {activeTab === 'messages' && (
+          <div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1">
+                <ChatList
+                  currentUserId={currentUser.id}
+                  onSelectChat={handleSelectChat}
+                />
+              </div>
+              <div className="lg:col-span-2">
+                {showChat && selectedChatUser ? (
+                  <Chat
+                    currentUserId={currentUser.id}
+                    currentUserModel="Volunteer"
+                    recipientId={selectedChatUser.id}
+                    recipientName={selectedChatUser.name}
+                    onClose={handleCloseChat}
+                  />
+                ) : (
+                  <div className="bg-white rounded-lg shadow-lg p-12 text-center">
+                    <svg
+                      className="mx-auto h-16 w-16 text-gray-400 mb-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                      />
+                    </svg>
+                    <p className="text-gray-500 text-lg">Select a conversation to start chatting</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </main>

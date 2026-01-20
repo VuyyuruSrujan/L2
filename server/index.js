@@ -8,6 +8,7 @@ const UserModel = require('./models/customer_reg');
 const HelpRequestModel = require('./models/helpRequest');
 const FeedbackModel = require('./models/feedback');
 const NotificationModel = require('./models/notification');
+const MessageModel = require('./models/message');
 
 const app = express();
 app.use(express.json());
@@ -55,6 +56,13 @@ async function createNotification(userId, userEmail, type, title, message, relat
     } catch (error) {
         console.error('Error creating notification:', error);
     }
+}
+
+// Helper to create a Google Meet style link (letters only, format: abc-defg-hij)
+function generateMeetLink() {
+    const letters = 'abcdefghijklmnopqrstuvwxyz';
+    const segment = (len) => Array.from({ length: len }, () => letters[Math.floor(Math.random() * letters.length)]).join('');
+    return `https://meet.google.com/${segment(3)}-${segment(4)}-${segment(3)}`;
 }
 
 // Helper function to calculate distance between two coordinates (Haversine formula)
@@ -447,6 +455,9 @@ app.post('/help-requests/:requestId/accept', async (req, res) => {
             return res.status(404).json({ message: 'Volunteer not found' });
         }
 
+        // Generate a valid-format Meet link (stable per request)
+        const meetLink = helpRequest.meetLink || generateMeetLink();
+
         helpRequest.status = 'accepted';
         helpRequest.assignedVolunteer = {
             volunteerId: volunteer._id,
@@ -455,6 +466,7 @@ app.post('/help-requests/:requestId/accept', async (req, res) => {
             volunteerPhone,
             acceptedAt: new Date()
         };
+        helpRequest.meetLink = meetLink;
         helpRequest.timeline.push({
             status: 'accepted',
             timestamp: new Date(),
@@ -785,7 +797,12 @@ app.get('/notifications/:userId', async (req, res) => {
         const { userId } = req.params;
         const { unreadOnly } = req.query;
 
-        let query = { userId };
+        // Validate ObjectId to avoid cast errors
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({ message: 'Invalid user id' });
+        }
+
+        let query = { userId: new mongoose.Types.ObjectId(userId) };
         if (unreadOnly === 'true') {
             query.isRead = false;
         }
@@ -1170,6 +1187,161 @@ app.get('/analytics/reports', async (req, res) => {
     } catch (err) {
         console.error('Error fetching analytics:', err);
         return res.status(500).json({ message: 'Error fetching analytics', error: err.message });
+    }
+});
+
+// ============================================
+// CHAT / MESSAGING ENDPOINTS
+// ============================================
+
+// Send a message
+app.post('/api/messages/send', async (req, res) => {
+    try {
+        const { senderId, senderModel, receiverId, receiverModel, message, helpRequestId } = req.body;
+
+        if (!senderId || !senderModel || !receiverId || !receiverModel || !message) {
+            return res.status(400).json({ message: 'Missing required fields' });
+        }
+
+        const newMessage = await MessageModel.create({
+            senderId,
+            senderModel,
+            receiverId,
+            receiverModel,
+            message,
+            helpRequestId
+        });
+
+        // Populate sender and receiver info
+        const populatedMessage = await MessageModel.findById(newMessage._id)
+            .populate('senderId', 'name email')
+            .populate('receiverId', 'name email');
+
+        res.status(201).json(populatedMessage);
+    } catch (err) {
+        console.error('Error sending message:', err);
+        res.status(500).json({ message: 'Error sending message', error: err.message });
+    }
+});
+
+// Get conversation between two users
+app.get('/api/messages/conversation/:userId1/:userId2', async (req, res) => {
+    try {
+        const { userId1, userId2 } = req.params;
+        const { limit = 50, helpRequestId } = req.query;
+
+        const query = {
+            $or: [
+                { senderId: userId1, receiverId: userId2 },
+                { senderId: userId2, receiverId: userId1 }
+            ]
+        };
+
+        // Filter by helpRequestId if provided
+        if (helpRequestId) {
+            query.helpRequestId = helpRequestId;
+        }
+
+        const messages = await MessageModel.find(query)
+        .sort({ createdAt: -1 })
+        .limit(parseInt(limit))
+        .populate('senderId', 'name email')
+        .populate('receiverId', 'name email');
+
+        // Mark messages as read where current user is receiver
+        await MessageModel.updateMany(
+            { receiverId: userId1, senderId: userId2, isRead: false },
+            { isRead: true }
+        );
+
+        res.json(messages.reverse());
+    } catch (err) {
+        console.error('Error fetching conversation:', err);
+        res.status(500).json({ message: 'Error fetching conversation', error: err.message });
+    }
+});
+
+// Get all conversations for a user
+app.get('/api/messages/chats/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Get all unique users this user has chatted with
+        const sentMessages = await MessageModel.distinct('receiverId', { senderId: userId });
+        const receivedMessages = await MessageModel.distinct('senderId', { receiverId: userId });
+        
+        const uniqueUserIds = [...new Set([...sentMessages.map(id => id.toString()), ...receivedMessages.map(id => id.toString())])];
+
+        // Get last message with each user and unread count
+        const chats = await Promise.all(uniqueUserIds.map(async (otherUserId) => {
+            const lastMessage = await MessageModel.findOne({
+                $or: [
+                    { senderId: userId, receiverId: otherUserId },
+                    { senderId: otherUserId, receiverId: userId }
+                ]
+            })
+            .sort({ createdAt: -1 })
+            .populate('senderId', 'name email role')
+            .populate('receiverId', 'name email role');
+
+            const unreadCount = await MessageModel.countDocuments({
+                senderId: otherUserId,
+                receiverId: userId,
+                isRead: false
+            });
+
+            // Get the other user's info
+            const otherUser = await UserModel.findById(otherUserId).select('name email role');
+
+            return {
+                userId: otherUserId,
+                user: otherUser,
+                lastMessage,
+                unreadCount
+            };
+        }));
+
+        // Sort by last message time
+        chats.sort((a, b) => {
+            if (!a.lastMessage) return 1;
+            if (!b.lastMessage) return -1;
+            return new Date(b.lastMessage.createdAt) - new Date(a.lastMessage.createdAt);
+        });
+
+        res.json(chats);
+    } catch (err) {
+        console.error('Error fetching chats:', err);
+        res.status(500).json({ message: 'Error fetching chats', error: err.message });
+    }
+});
+
+// Get unread message count for a user
+app.get('/api/messages/unread/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const unreadCount = await MessageModel.countDocuments({
+            receiverId: userId,
+            isRead: false
+        });
+        res.json({ unreadCount });
+    } catch (err) {
+        console.error('Error fetching unread count:', err);
+        res.status(500).json({ message: 'Error fetching unread count', error: err.message });
+    }
+});
+
+// Mark messages as read
+app.put('/api/messages/mark-read', async (req, res) => {
+    try {
+        const { receiverId, senderId } = req.body;
+        await MessageModel.updateMany(
+            { receiverId, senderId, isRead: false },
+            { isRead: true }
+        );
+        res.json({ message: 'Messages marked as read' });
+    } catch (err) {
+        console.error('Error marking messages as read:', err);
+        res.status(500).json({ message: 'Error marking messages as read', error: err.message });
     }
 });
 

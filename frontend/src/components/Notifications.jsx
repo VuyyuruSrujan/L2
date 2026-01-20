@@ -12,11 +12,11 @@ const Notifications = () => {
 
   // Fetch notifications
   const fetchNotifications = async () => {
-    if (!currentUser) return;
+    if (!currentUser || !currentUser.id) return;
     
     try {
       setLoading(true);
-      const response = await axios.get(`http://localhost:3000/notifications/${currentUser._id}`);
+      const response = await axios.get(`http://localhost:3000/notifications/${currentUser.id}`);
       setNotifications(response.data);
       
       // Count unread
@@ -46,10 +46,10 @@ const Notifications = () => {
 
   // Mark all as read
   const markAllAsRead = async () => {
-    if (!currentUser) return;
+    if (!currentUser || !currentUser.id) return;
     
     try {
-      await axios.post(`http://localhost:3000/notifications/${currentUser._id}/mark-all-read`);
+      await axios.post(`http://localhost:3000/notifications/${currentUser.id}/mark-all-read`);
       
       // Update local state
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));

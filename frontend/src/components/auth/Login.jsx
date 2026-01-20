@@ -60,7 +60,7 @@ const Login = () => {
       <div className="max-w-md w-full space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-bold text-gray-900">
-            Local Support App
+            Local Care Connect App
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             Connect people in need with helpful volunteers

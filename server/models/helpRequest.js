@@ -78,6 +78,12 @@ const HelpRequestSchema = new mongoose.Schema({
             lastUpdated: Date
         }
     },
+
+    // Virtual meeting link for coordination
+    meetLink: {
+        type: String,
+        default: null
+    },
     
     // Status tracking
     status: {
