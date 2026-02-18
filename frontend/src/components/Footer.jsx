@@ -7,7 +7,7 @@ function Footer() {
     <footer className="bg-slate-900 text-slate-100 mt-12">
       <div className="max-w-6xl mx-auto px-6 py-12 grid gap-10 md:grid-cols-4">
         <div className="space-y-3">
-          <p className="text-xl font-semibold tracking-tight">Local Support</p>
+          <p className="text-xl font-semibold tracking-tight">Local Care connect</p>
           <p className="text-sm text-slate-300 leading-relaxed">
             Connecting neighbors, volunteers, and support teams to keep every request moving smoothly.
           </p>

@@ -8,15 +8,19 @@ const Login = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
-  const { login } = useAuth();
+  const { login, adminLogin, currentUser, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
 
-  // If already logged in, send to the proper dashboard immediately
+  // If already logged in, redirect to dashboard
   useEffect(() => {
-    if (!currentUser) return;
-    const timer = setTimeout(() => {
+    if (authLoading) return; // Wait for auth context to load
+    
+    // Only redirect if user IS logged in
+    if (currentUser) {
       switch (currentUser.role) {
+        case 'admin':
+          navigate('/admin/dashboard', { replace: true });
+          break;
         case 'requester':
           navigate('/requester/dashboard', { replace: true });
           break;
@@ -24,16 +28,34 @@ const Login = () => {
           navigate('/volunteer/dashboard', { replace: true });
           break;
         default:
-          navigate('/', { replace: true });
+          break; // Do nothing if no role
       }
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [currentUser]);
+    }
+    // If user is NOT logged in, stay on login page (do nothing)
+  }, [currentUser, authLoading, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+
+    // Check if trying to login as admin
+    const adminEmail = import.meta.env.VITE_ADMIN_EMAIL;
+    const adminPassword = import.meta.env.VITE_ADMIN_PASSWORD;
+    
+    if (email === adminEmail && password === adminPassword) {
+      // Direct admin login without going through regular auth
+      const adminUser = {
+        name: 'Administrator',
+        email: adminEmail,
+        role: 'admin',
+      };
+      adminLogin(adminUser);
+      setLoading(false);
+      setRedirecting(true);
+      navigate('/admin/dashboard');
+      return;
+    }
 
     const result = await login(email, password);
     setLoading(false);
@@ -41,6 +63,9 @@ const Login = () => {
     if (result.success) {
       setRedirecting(true);
       switch (result.user.role) {
+        case 'admin':
+          navigate('/admin/dashboard');
+          break;
         case 'requester':
           navigate('/requester/dashboard');
           break;

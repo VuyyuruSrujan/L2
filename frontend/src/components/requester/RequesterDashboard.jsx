@@ -154,6 +154,33 @@ const RequesterDashboard = () => {
     }
   };
 
+  const handlePay = (request) => {
+    (async () => {
+      try {
+        const body = { requestId: request._id || request.id, amount: 100 };
+        const res = await fetch('http://localhost:3000/payments/create-checkout-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (data && data.url) {
+          window.location.href = data.url;
+        } else {
+          alert('Failed to create checkout session');
+        }
+      } catch (err) {
+        console.error('Payment redirect error:', err);
+        alert('Error initiating payment');
+      }
+    })();
+  };
+
+  const handleRate = (request) => {
+    // Placeholder - open rating modal or navigate to rating UI later
+    alert(`Rate / Review action for request ${request._id || request.id}`);
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'open': return 'bg-yellow-100 text-yellow-800';
@@ -459,19 +486,36 @@ const RequesterDashboard = () => {
                           </div>
                         </div>
                         
-                        {/* Chat button for assigned volunteers */}
+                        {/* Chat button for assigned volunteers - replaced by Pay/Rate when completed */}
                         {request.assignedVolunteer && request.assignedVolunteer.volunteerId && (
                           <div className="mb-4">
-                            <button
-                              onClick={() => toggleChatForRequest(request._id)}
-                              className={`w-full px-4 py-2 rounded-lg transition ${
-                                chatOpenForRequest === request._id
-                                  ? 'bg-gray-600 text-white hover:bg-gray-700'
-                                  : 'bg-blue-600 text-white hover:bg-blue-700'
-                              }`}
-                            >
-                              {chatOpenForRequest === request._id ? '✖ Close Chat' : '💬 Chat with Volunteer'}
-                            </button>
+                            {request.status === 'completed' ? (
+                              <div className="grid grid-cols-2 gap-3">
+                                <button
+                                  onClick={() => handlePay(request)}
+                                  className="w-full px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition"
+                                >
+                                  💳 Pay
+                                </button>
+                                <button
+                                  onClick={() => handleRate(request)}
+                                  className="w-full px-4 py-2 rounded-lg bg-yellow-500 text-white hover:bg-yellow-600 transition"
+                                >
+                                  ⭐ Rate / Review
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => toggleChatForRequest(request._id)}
+                                className={`w-full px-4 py-2 rounded-lg transition ${
+                                  chatOpenForRequest === request._id
+                                    ? 'bg-gray-600 text-white hover:bg-gray-700'
+                                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                                }`}
+                              >
+                                {chatOpenForRequest === request._id ? '✖ Close Chat' : '💬 Chat with Volunteer'}
+                              </button>
+                            )}
                           </div>
                         )}
 

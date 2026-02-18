@@ -18,7 +18,9 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
   if (allowedRoles && !allowedRoles.includes(currentUser.role)) {
     const role = currentUser.role;
-    const roleHome = role === 'requester'
+    const roleHome = role === 'admin'
+      ? '/admin/dashboard'
+      : role === 'requester'
       ? '/requester/dashboard'
       : role === 'volunteer'
       ? '/volunteer/dashboard'

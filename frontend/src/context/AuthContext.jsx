@@ -76,11 +76,21 @@ export const AuthProvider = ({ children }) => {
     } catch {}
   };
 
+  const adminLogin = (adminUser) => {
+    setCurrentUser(adminUser);
+    saveToStorage(STORAGE_KEYS.CURRENT_USER, adminUser);
+    try {
+      localStorage.setItem('service_app_login_id', adminUser.email || '');
+      localStorage.setItem('service_app_role', 'admin');
+    } catch {}
+  };
+
   const value = {
     currentUser,
     login,
     register,
     logout,
+    adminLogin,
     loading,
   };
 

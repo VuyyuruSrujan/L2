@@ -7,6 +7,7 @@ import RequesterDashboard from './components/requester/RequesterDashboard';
 import RequesterProfile from './components/requester/RequesterProfile';
 import VolunteerDashboard from './components/volunteer/VolunteerDashboard';
 import VolunteerProfile from './components/volunteer/VolunteerProfile';
+import AdminDashboard from './components/admin/AdminDashboard';
 import Footer from './components/Footer';
 import Landing from './components/Landing';
 
@@ -20,6 +21,15 @@ function App() {
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register/:role" element={<Register />} />
+
+              <Route
+                path="/admin/dashboard"
+                element={
+                  <ProtectedRoute allowedRoles={['admin']}>
+                    <AdminDashboard />
+                  </ProtectedRoute>
+                }
+              />
 
               <Route
                 path="/requester/dashboard"

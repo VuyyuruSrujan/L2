@@ -25,6 +25,10 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+// Stripe client
+const Stripe = require('stripe');
+const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
+
 // Helper function to send email notifications
 async function sendEmailNotification(to, subject, htmlContent) {
     try {
@@ -381,6 +385,19 @@ app.get('/help-requests/open', async (req, res) => {
         return res.json(requests);
     } catch (err) {
         console.error('Error fetching open help requests:', err);
+        return res.status(500).json({ message: 'Error fetching help requests' });
+    }
+});
+
+// Get all help requests (Admin view)
+app.get('/admin/help-requests/all', async (req, res) => {
+    try {
+        const requests = await HelpRequestModel.find()
+            .sort({ urgency: -1, createdAt: -1 });
+
+        return res.json(requests);
+    } catch (err) {
+        console.error('Error fetching all help requests:', err);
         return res.status(500).json({ message: 'Error fetching help requests' });
     }
 });
@@ -1342,6 +1359,521 @@ app.put('/api/messages/mark-read', async (req, res) => {
     } catch (err) {
         console.error('Error marking messages as read:', err);
         res.status(500).json({ message: 'Error marking messages as read', error: err.message });
+    }
+});
+
+// ========== ADMIN MANAGEMENT ROUTES ==========
+
+// Get all users (Admin only)
+app.get('/admin/users', async (req, res) => {
+    try {
+        const users = await UserModel.find().select('-password').sort({ createdAt: -1 });
+        res.json(users);
+    } catch (err) {
+        console.error('Error fetching users:', err);
+        res.status(500).json({ message: 'Error fetching users', error: err.message });
+    }
+});
+
+// Get users by role (Admin only)
+app.get('/admin/users/role/:role', async (req, res) => {
+    try {
+        const { role } = req.params;
+        const validRoles = ['requester', 'volunteer', 'admin', 'technician'];
+        
+        if (!validRoles.includes(role)) {
+            return res.status(400).json({ message: 'Invalid role' });
+        }
+        
+        const users = await UserModel.find({ role }).select('-password').sort({ createdAt: -1 });
+        res.json(users);
+    } catch (err) {
+        console.error('Error fetching users by role:', err);
+        res.status(500).json({ message: 'Error fetching users', error: err.message });
+    }
+});
+
+// Create a new user (Admin only)
+app.post('/admin/users/create', async (req, res) => {
+    try {
+        const { name, email, password, phone, address, city, role } = req.body;
+
+        // Validate required fields
+        if (!name || !email || !password || !phone || !address || !city || !role) {
+            return res.status(400).json({ message: 'All fields are required' });
+        }
+
+        // Check if user already exists
+        const existingUser = await UserModel.findOne({ email: email.toLowerCase() });
+        if (existingUser) {
+            return res.status(400).json({ message: 'Email already registered' });
+        }
+
+        // Create new user
+        const newUser = await UserModel.create({
+            name: name.trim(),
+            email: email.toLowerCase().trim(),
+            password,
+            phone: phone.trim(),
+            address: address.trim(),
+            city: city.trim(),
+            role,
+            isAvailable: true,
+            isVerified: role === 'volunteer' ? false : true
+        });
+
+        // Send welcome email
+        await sendEmailNotification(
+            newUser.email,
+            'Welcome to Local Support App',
+            `<h2>Welcome to Local Support App!</h2>
+            <p>Hello ${newUser.name},</p>
+            <p>Your account has been created as a ${role}.</p>
+            <p>You can now login to the system.</p>
+            <p>Best regards,<br>Local Support Team</p>`
+        );
+
+        res.status(201).json({ 
+            message: 'User created successfully',
+            userId: newUser._id
+        });
+    } catch (err) {
+        console.error('Error creating user:', err);
+        res.status(500).json({ message: 'Error creating user', error: err.message });
+    }
+});
+
+// Update user details (Admin only)
+app.put('/admin/users/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { name, email, phone, address, city, role, isAvailable, isVerified } = req.body;
+
+        // Check if user exists
+        const user = await UserModel.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Check if new email is already taken by another user
+        if (email && email !== user.email) {
+            const existingUser = await UserModel.findOne({ email: email.toLowerCase() });
+            if (existingUser) {
+                return res.status(400).json({ message: 'Email already in use' });
+            }
+        }
+
+        // Update fields
+        if (name) user.name = name.trim();
+        if (email) user.email = email.toLowerCase().trim();
+        if (phone) user.phone = phone.trim();
+        if (address) user.address = address.trim();
+        if (city) user.city = city.trim();
+        if (role) user.role = role;
+        if (isAvailable !== undefined) user.isAvailable = isAvailable;
+        if (isVerified !== undefined) user.isVerified = isVerified;
+
+        await user.save();
+
+        res.json({ 
+            message: 'User updated successfully',
+            user: user.toObject()
+        });
+    } catch (err) {
+        console.error('Error updating user:', err);
+        res.status(500).json({ message: 'Error updating user', error: err.message });
+    }
+});
+
+// Delete user (Admin only)
+app.delete('/admin/users/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const user = await UserModel.findByIdAndDelete(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        res.json({ message: 'User deleted successfully' });
+    } catch (err) {
+        console.error('Error deleting user:', err);
+        res.status(500).json({ message: 'Error deleting user', error: err.message });
+    }
+});
+
+// Block/Unblock user (Admin only)
+app.put('/admin/users/:userId/block-status', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { isBlocked, reason } = req.body;
+
+        const user = await UserModel.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        user.blocked = {
+            isBlocked,
+            blockedBy: 'admin',
+            blockedAt: isBlocked ? new Date() : null,
+            reason: isBlocked ? reason : ''
+        };
+
+        await user.save();
+
+        res.json({ 
+            message: `User ${isBlocked ? 'blocked' : 'unblocked'} successfully`,
+            user: user.toObject()
+        });
+    } catch (err) {
+        console.error('Error updating block status:', err);
+        res.status(500).json({ message: 'Error updating block status', error: err.message });
+    }
+});
+
+// ========== VOLUNTEER MANAGEMENT ROUTES ==========
+
+// Get all volunteers (Admin only)
+app.get('/admin/volunteers', async (req, res) => {
+    try {
+        const volunteers = await UserModel.find({ role: 'volunteer' }).select('-password').sort({ createdAt: -1 });
+        res.json(volunteers);
+    } catch (err) {
+        console.error('Error fetching volunteers:', err);
+        res.status(500).json({ message: 'Error fetching volunteers', error: err.message });
+    }
+});
+
+// Get available volunteers by location and skills (Admin only)
+app.post('/admin/volunteers/available', async (req, res) => {
+    try {
+        const { latitude, longitude, skills = [], maxDistance = 10 } = req.body;
+
+        const volunteers = await UserModel.find({
+            role: 'volunteer',
+            isAvailable: true,
+            isVerified: true,
+            'blocked.isBlocked': false
+        }).select('-password');
+
+        // Filter by location if provided
+        let filtered = volunteers;
+        if (latitude && longitude) {
+            filtered = volunteers.filter(v => {
+                if (!v.location || !v.location.latitude || !v.location.longitude) {
+                    return false;
+                }
+                const distance = calculateDistance(
+                    latitude, longitude,
+                    v.location.latitude, v.location.longitude
+                );
+                return distance <= maxDistance;
+            });
+        }
+
+        // Filter by skills if provided
+        if (skills.length > 0) {
+            filtered = filtered.filter(v => 
+                skills.some(skill => v.skills && v.skills.includes(skill))
+            );
+        }
+
+        res.json(filtered);
+    } catch (err) {
+        console.error('Error fetching available volunteers:', err);
+        res.status(500).json({ message: 'Error fetching volunteers', error: err.message });
+    }
+});
+
+// Assign volunteer to a help request (Admin only)
+app.post('/admin/assign-volunteer', async (req, res) => {
+    try {
+        const { requestId, volunteerId, adminEmail, adminName } = req.body;
+
+        if (!requestId || !volunteerId) {
+            return res.status(400).json({ message: 'Request ID and Volunteer ID are required' });
+        }
+
+        const helpRequest = await HelpRequestModel.findById(requestId);
+        if (!helpRequest) {
+            return res.status(404).json({ message: 'Help request not found' });
+        }
+
+        const volunteer = await UserModel.findById(volunteerId);
+        if (!volunteer) {
+            return res.status(404).json({ message: 'Volunteer not found' });
+        }
+
+        // Update help request
+        helpRequest.assignedTo = {
+            volunteerId: volunteer._id,
+            volunteerName: volunteer.name,
+            volunteerEmail: volunteer.email,
+            assignedAt: new Date(),
+            assignedBy: adminEmail
+        };
+        helpRequest.status = 'assigned';
+
+        await helpRequest.save();
+
+        // Create notification for volunteer
+        await createNotification(
+            volunteer._id,
+            volunteer.email,
+            'assignment',
+            'New Request Assignment',
+            `You have been assigned to a new help request by ${adminName}`,
+            helpRequest._id,
+            'helpRequest'
+        );
+
+        // Send email to volunteer
+        await sendEmailNotification(
+            volunteer.email,
+            'New Request Assignment',
+            `<h2>You have been assigned to a new request!</h2>
+            <p>Dear ${volunteer.name},</p>
+            <p>You have been assigned to a help request.</p>
+            <p>Please check your dashboard for more details.</p>
+            <p>Best regards,<br>Local Support Team</p>`
+        );
+
+        res.json({ 
+            message: 'Volunteer assigned successfully',
+            request: helpRequest.toObject()
+        });
+    } catch (err) {
+        console.error('Error assigning volunteer:', err);
+        res.status(500).json({ message: 'Error assigning volunteer', error: err.message });
+    }
+});
+
+// Update volunteer profile/status (Admin only)
+app.put('/admin/volunteers/:volunteerId', async (req, res) => {
+    try {
+        const { volunteerId } = req.params;
+        const { skills, isAvailable, isVerified } = req.body;
+
+        const volunteer = await UserModel.findById(volunteerId);
+        if (!volunteer) {
+            return res.status(404).json({ message: 'Volunteer not found' });
+        }
+
+        if (skills) volunteer.skills = skills;
+        if (isAvailable !== undefined) volunteer.isAvailable = isAvailable;
+        if (isVerified !== undefined) volunteer.isVerified = isVerified;
+
+        await volunteer.save();
+
+        res.json({ 
+            message: 'Volunteer updated successfully',
+            volunteer: volunteer.toObject()
+        });
+    } catch (err) {
+        console.error('Error updating volunteer:', err);
+        res.status(500).json({ message: 'Error updating volunteer', error: err.message });
+    }
+});
+
+// ========== MONITORING ROUTES ==========
+
+// Get all ongoing help requests (Admin only)
+app.get('/admin/requests/ongoing', async (req, res) => {
+    try {
+        const requests = await HelpRequestModel.find({
+            status: { $in: ['pending', 'assigned', 'in-progress'] }
+        }).sort({ createdAt: -1 });
+
+        res.json(requests);
+    } catch (err) {
+        console.error('Error fetching ongoing requests:', err);
+        res.status(500).json({ message: 'Error fetching requests', error: err.message });
+    }
+});
+
+// Create Stripe Checkout session and return URL
+app.post('/payments/create-checkout-session', async (req, res) => {
+    try {
+        if (!stripe) return res.status(500).json({ message: 'Stripe not configured on server' });
+
+        const { requestId, amount } = req.body;
+        // amount is expected in currency's smallest unit (cents for USD) on server side; allow passing dollars for convenience
+        const unitAmount = amount && amount > 0 ? Math.round(amount) : 100; // default 100 (cents / smallest unit)
+
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [
+                {
+                    price_data: {
+                        currency: 'usd',
+                        product_data: {
+                            name: `Payment for help request ${requestId || ''}`,
+                        },
+                        unit_amount: unitAmount,
+                    },
+                    quantity: 1,
+                },
+            ],
+            mode: 'payment',
+            success_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/payment-cancelled`,
+            metadata: { requestId: requestId || '' }
+        });
+
+        return res.json({ url: session.url });
+    } catch (err) {
+        console.error('Stripe checkout session error:', err);
+        return res.status(500).json({ message: 'Error creating checkout session', error: err.message });
+    }
+});
+
+// Get all complaints with monitoring data (Admin only)
+app.get('/admin/complaints/all', async (req, res) => {
+    try {
+        const ComplaintModel = require('./models/complaint');
+        const complaints = await ComplaintModel.find().sort({ createdAt: -1 });
+
+        res.json(complaints);
+    } catch (err) {
+        console.error('Error fetching complaints:', err);
+        res.status(500).json({ message: 'Error fetching complaints', error: err.message });
+    }
+});
+
+// Get volunteer activity summary (Admin only)
+app.get('/admin/volunteers/:volunteerId/activity', async (req, res) => {
+    try {
+        const { volunteerId } = req.params;
+
+        const volunteer = await UserModel.findById(volunteerId);
+        if (!volunteer) {
+            return res.status(404).json({ message: 'Volunteer not found' });
+        }
+
+        const completedRequests = await HelpRequestModel.countDocuments({
+            'assignedTo.volunteerId': volunteerId,
+            status: 'completed'
+        });
+
+        const ongoingRequests = await HelpRequestModel.countDocuments({
+            'assignedTo.volunteerId': volunteerId,
+            status: { $in: ['assigned', 'in-progress'] }
+        });
+
+        const feedbackCount = await FeedbackModel.countDocuments({
+            volunteerId
+        });
+
+        res.json({
+            volunteerId,
+            volunteerName: volunteer.name,
+            rating: volunteer.rating.average,
+            ratingCount: volunteer.rating.count,
+            completedRequests,
+            ongoingRequests,
+            feedback: feedbackCount,
+            isAvailable: volunteer.isAvailable,
+            skills: volunteer.skills
+        });
+    } catch (err) {
+        console.error('Error fetching volunteer activity:', err);
+        res.status(500).json({ message: 'Error fetching activity', error: err.message });
+    }
+});
+
+// Get comprehensive monitoring dashboard data (Admin only)
+app.get('/admin/dashboard/metrics', async (req, res) => {
+    try {
+        const totalUsers = await UserModel.countDocuments();
+        const totalVolunteers = await UserModel.countDocuments({ role: 'volunteer' });
+        const totalRequesters = await UserModel.countDocuments({ role: 'requester' });
+        const totalAdmins = await UserModel.countDocuments({ role: 'admin' });
+        
+        const ongoingRequests = await HelpRequestModel.countDocuments({
+            status: { $in: ['pending', 'assigned', 'in-progress'] }
+        });
+        
+        const completedRequests = await HelpRequestModel.countDocuments({ status: 'completed' });
+        
+        const ComplaintModel = require('./models/complaint');
+        const totalComplaints = await ComplaintModel.countDocuments();
+        const openComplaints = await ComplaintModel.countDocuments({ status: 'open' });
+        
+        const totalFeedback = await FeedbackModel.countDocuments();
+        const averageRating = await FeedbackModel.aggregate([
+            { $group: { _id: null, avgRating: { $avg: '$rating' } } }
+        ]);
+
+        res.json({
+            users: {
+                total: totalUsers,
+                volunteers: totalVolunteers,
+                requesters: totalRequesters,
+                admins: totalAdmins
+            },
+            requests: {
+                ongoing: ongoingRequests,
+                completed: completedRequests
+            },
+            complaints: {
+                total: totalComplaints,
+                open: openComplaints,
+                resolved: totalComplaints - openComplaints
+            },
+            feedback: {
+                total: totalFeedback,
+                averageRating: averageRating[0]?.avgRating || 0
+            }
+        });
+    } catch (err) {
+        console.error('Error fetching dashboard metrics:', err);
+        res.status(500).json({ message: 'Error fetching metrics', error: err.message });
+    }
+});
+
+// Get users for admin (optionally filter by role)
+app.get('/admin/users', async (req, res) => {
+    try {
+        const { role } = req.query;
+        const query = role ? { role } : {};
+        const users = await UserModel.find(query).select('-password');
+        return res.json(users);
+    } catch (err) {
+        console.error('Error fetching users:', err);
+        return res.status(500).json({ message: 'Error fetching users', error: err.message });
+    }
+});
+
+// Update user details (Admin)
+app.patch('/admin/users/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { name, email, phone, role, city, address, password } = req.body;
+
+        const updates = {};
+        if (name !== undefined) updates.name = name;
+        if (email !== undefined) updates.email = email;
+        if (phone !== undefined) updates.phone = phone;
+        if (city !== undefined) updates.city = city;
+        if (address !== undefined) updates.address = address;
+        if (role !== undefined) updates.role = role;
+        if (password) updates.password = password;
+
+        const user = await UserModel.findByIdAndUpdate(
+            userId,
+            { $set: updates },
+            { new: true, runValidators: true }
+        ).select('-password');
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        return res.json({ message: 'User updated successfully', user });
+    } catch (err) {
+        console.error('Error updating user:', err);
+        return res.status(500).json({ message: 'Error updating user', error: err.message });
     }
 });
 
