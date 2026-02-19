@@ -20,6 +20,17 @@ const RequesterDashboard = () => {
   const [selectedChatUser, setSelectedChatUser] = useState(null);
   const [chatOpenForRequest, setChatOpenForRequest] = useState(null);
 
+  // Rating modal state
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratingRequest, setRatingRequest] = useState(null);
+  const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const [submittingRating, setSubmittingRating] = useState(false);
+
+  // Reviews state
+  const [myReviews, setMyReviews] = useState([]);
+
   // Form state for creating help request
   const [formData, setFormData] = useState({
     title: '',
@@ -36,6 +47,8 @@ const RequesterDashboard = () => {
       fetchMyRequests();
     } else if (activeTab === 'create') {
       fetchStatistics();
+    } else if (activeTab === 'myReviews') {
+      fetchMyReviews();
     }
   }, [activeTab]);
 
@@ -58,6 +71,19 @@ const RequesterDashboard = () => {
       setStatistics(response.data);
     } catch (error) {
       console.error('Error fetching statistics:', error);
+    }
+  };
+
+  const fetchMyReviews = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`http://localhost:3000/feedbacks/user/${currentUser.id}?ratedUser=false`);
+      setMyReviews(response.data);
+    } catch (error) {
+      console.error('Error fetching reviews:', error);
+      alert('Failed to fetch your reviews');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -177,8 +203,49 @@ const RequesterDashboard = () => {
   };
 
   const handleRate = (request) => {
-    // Placeholder - open rating modal or navigate to rating UI later
-    alert(`Rate / Review action for request ${request._id || request.id}`);
+    setRatingRequest(request);
+    setRating(0);
+    setComment('');
+    setShowRatingModal(true);
+  };
+
+  const handleSubmitRating = async () => {
+    if (rating === 0) {
+      alert('Please select a rating');
+      return;
+    }
+    if (!comment.trim()) {
+      alert('Please provide a comment');
+      return;
+    }
+
+    try {
+      setSubmittingRating(true);
+      const response = await axios.post('http://localhost:3000/feedbacks/create', {
+        userId: currentUser.id,
+        userEmail: currentUser.email,
+        userName: currentUser.name,
+        userRole: 'requester',
+        helpRequestId: ratingRequest._id,
+        helpRequestTitle: ratingRequest.title,
+        ratedUserId: ratingRequest.assignedVolunteer.volunteerId,
+        ratedUserRole: 'volunteer',
+        rating: rating,
+        comment: comment.trim()
+      });
+
+      alert('Rating submitted successfully! Thank you for your feedback.');
+      setShowRatingModal(false);
+      setRatingRequest(null);
+      setRating(0);
+      setComment('');
+      fetchMyRequests(); // Refresh the list
+    } catch (error) {
+      console.error('Error submitting rating:', error);
+      alert(error.response?.data?.message || 'Failed to submit rating');
+    } finally {
+      setSubmittingRating(false);
+    }
   };
 
   const getStatusColor = (status) => {
@@ -262,6 +329,16 @@ const RequesterDashboard = () => {
               }`}
             >
               💬 Messages
+            </button>
+            <button
+              onClick={() => setActiveTab('myReviews')}
+              className={`py-4 px-2 border-b-2 font-medium ${
+                activeTab === 'myReviews'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              ⭐ My Reviews
             </button>
           </div>
         </div>
@@ -589,7 +666,149 @@ const RequesterDashboard = () => {
             </div>
           </div>
         )}
+
+        {/* My Reviews Tab */}
+        {activeTab === 'myReviews' && (
+          <div>
+            <h2 className="text-2xl font-bold mb-6">My Reviews</h2>
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+              </div>
+            ) : myReviews.length === 0 ? (
+              <div className="bg-white rounded-lg shadow p-12 text-center">
+                <p className="text-gray-500">You haven't submitted any reviews yet.</p>
+                <p className="text-sm text-gray-400 mt-2">Complete help requests and rate your volunteers to see reviews here.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {myReviews.map((review) => (
+                  <div key={review._id} className="bg-white rounded-lg shadow-lg p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="flex">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <span
+                                key={star}
+                                className={`text-2xl ${
+                                  star <= review.rating ? 'text-yellow-400' : 'text-gray-300'
+                                }`}
+                              >
+                                ★
+                              </span>
+                            ))}
+                          </div>
+                          <span className="text-lg font-semibold text-gray-900">
+                            {review.rating}.0
+                          </span>
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-900">
+                          {review.helpRequestTitle}
+                        </h3>
+                        <p className="text-sm text-gray-500">
+                          Reviewed on {new Date(review.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="bg-blue-50 px-3 py-1 rounded-full">
+                        <p className="text-xs font-medium text-blue-700">Your Review</p>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <p className="text-gray-700 italic">"{review.comment}"</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </main>
+
+      {/* Rating Modal */}
+      {showRatingModal && ratingRequest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="mb-4">
+              <h3 className="text-xl font-bold text-gray-900">Rate Your Experience</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Rate your experience with {ratingRequest.assignedVolunteer?.volunteerName}
+              </p>
+            </div>
+
+            {/* Star Rating */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Rating <span className="text-red-500">*</span>
+              </label>
+              <div className="flex gap-2 justify-center">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setRating(star)}
+                    onMouseEnter={() => setHoverRating(star)}
+                    onMouseLeave={() => setHoverRating(0)}
+                    className="text-4xl focus:outline-none transition-transform hover:scale-110"
+                  >
+                    {star <= (hoverRating || rating) ? (
+                      <span className="text-yellow-400">★</span>
+                    ) : (
+                      <span className="text-gray-300">☆</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              {rating > 0 && (
+                <p className="text-center mt-2 text-sm text-gray-600">
+                  {rating === 1 && "Poor"}
+                  {rating === 2 && "Fair"}
+                  {rating === 3 && "Good"}
+                  {rating === 4 && "Very Good"}
+                  {rating === 5 && "Excellent"}
+                </p>
+              )}
+            </div>
+
+            {/* Comment */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Your Review <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                rows="4"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Share your experience with the volunteer..."
+              />
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowRatingModal(false);
+                  setRatingRequest(null);
+                  setRating(0);
+                  setComment('');
+                }}
+                disabled={submittingRating}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitRating}
+                disabled={submittingRating || rating === 0 || !comment.trim()}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submittingRating ? 'Submitting...' : 'Submit Rating'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

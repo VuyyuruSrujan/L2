@@ -27,11 +27,16 @@ const VolunteerDashboard = () => {
   const [selectedChatUser, setSelectedChatUser] = useState(null);
   const [chatOpenForRequest, setChatOpenForRequest] = useState(null);
 
+  // Ratings state
+  const [ratings, setRatings] = useState([]);
+
   useEffect(() => {
     if (activeTab === 'available') {
       fetchAvailableRequests();
     } else if (activeTab === 'myRequests') {
       fetchMyRequests();
+    } else if (activeTab === 'ratings') {
+      fetchRatings();
     }
     fetchStatistics();
   }, [activeTab, selectedFilters]);
@@ -72,6 +77,19 @@ const VolunteerDashboard = () => {
       setStatistics(response.data);
     } catch (error) {
       console.error('Error fetching statistics:', error);
+    }
+  };
+
+  const fetchRatings = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`http://localhost:3000/feedbacks/user/${currentUser.id}?ratedUser=true`);
+      setRatings(response.data);
+    } catch (error) {
+      console.error('Error fetching ratings:', error);
+      alert('Failed to fetch ratings');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -289,6 +307,16 @@ const VolunteerDashboard = () => {
               }`}
             >
               💬 Messages
+            </button>
+            <button
+              onClick={() => setActiveTab('ratings')}
+              className={`py-4 px-2 border-b-2 font-medium ${
+                activeTab === 'ratings'
+                  ? 'border-green-600 text-green-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              ⭐ My Ratings
             </button>
           </div>
         </div>
@@ -560,6 +588,59 @@ const VolunteerDashboard = () => {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Ratings Tab */}
+        {activeTab === 'ratings' && (
+          <div>
+            <h2 className="text-2xl font-bold mb-6">My Ratings & Reviews</h2>
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+              </div>
+            ) : ratings.length === 0 ? (
+              <div className="bg-white rounded-lg shadow p-12 text-center">
+                <p className="text-gray-500">No ratings yet. Complete help requests to receive ratings from requesters!</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {ratings.map((rating) => (
+                  <div key={rating._id} className="bg-white rounded-lg shadow-lg p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="flex">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <span
+                                key={star}
+                                className={`text-2xl ${
+                                  star <= rating.rating ? 'text-yellow-400' : 'text-gray-300'
+                                }`}
+                              >
+                                ★
+                              </span>
+                            ))}
+                          </div>
+                          <span className="text-lg font-semibold text-gray-900">
+                            {rating.rating}.0
+                          </span>
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-900">
+                          {rating.helpRequestTitle}
+                        </h3>
+                        <p className="text-sm text-gray-500">
+                          By {rating.userName} • {new Date(rating.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <p className="text-gray-700 italic">"{rating.comment}"</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </main>

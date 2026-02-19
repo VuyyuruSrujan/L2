@@ -25,10 +25,6 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Stripe client
-const Stripe = require('stripe');
-const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
-
 // Helper function to send email notifications
 async function sendEmailNotification(to, subject, htmlContent) {
     try {
@@ -1606,14 +1602,14 @@ app.post('/admin/assign-volunteer', async (req, res) => {
         }
 
         // Update help request
-        helpRequest.assignedTo = {
+        helpRequest.assignedVolunteer = {
             volunteerId: volunteer._id,
             volunteerName: volunteer.name,
             volunteerEmail: volunteer.email,
-            assignedAt: new Date(),
-            assignedBy: adminEmail
+            volunteerPhone: volunteer.phone,
+            acceptedAt: new Date()
         };
-        helpRequest.status = 'assigned';
+        helpRequest.status = 'accepted';
 
         await helpRequest.save();
 
@@ -1689,42 +1685,6 @@ app.get('/admin/requests/ongoing', async (req, res) => {
     } catch (err) {
         console.error('Error fetching ongoing requests:', err);
         res.status(500).json({ message: 'Error fetching requests', error: err.message });
-    }
-});
-
-// Create Stripe Checkout session and return URL
-app.post('/payments/create-checkout-session', async (req, res) => {
-    try {
-        if (!stripe) return res.status(500).json({ message: 'Stripe not configured on server' });
-
-        const { requestId, amount } = req.body;
-        // amount is expected in currency's smallest unit (cents for USD) on server side; allow passing dollars for convenience
-        const unitAmount = amount && amount > 0 ? Math.round(amount) : 100; // default 100 (cents / smallest unit)
-
-        const session = await stripe.checkout.sessions.create({
-            payment_method_types: ['card'],
-            line_items: [
-                {
-                    price_data: {
-                        currency: 'usd',
-                        product_data: {
-                            name: `Payment for help request ${requestId || ''}`,
-                        },
-                        unit_amount: unitAmount,
-                    },
-                    quantity: 1,
-                },
-            ],
-            mode: 'payment',
-            success_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/payment-cancelled`,
-            metadata: { requestId: requestId || '' }
-        });
-
-        return res.json({ url: session.url });
-    } catch (err) {
-        console.error('Stripe checkout session error:', err);
-        return res.status(500).json({ message: 'Error creating checkout session', error: err.message });
     }
 });
 
