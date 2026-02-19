@@ -4,6 +4,9 @@ const cors = require("cors");
 const nodemailer = require("nodemailer");
 require('dotenv').config();
 
+// Initialize Stripe
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
 const UserModel = require('./models/customer_reg');
 const HelpRequestModel = require('./models/helpRequest');
 const FeedbackModel = require('./models/feedback');
@@ -802,6 +805,93 @@ app.get('/feedbacks/all', async (req, res) => {
         console.error('Error fetching all feedbacks:', err);
         return res.status(500).json({ message: 'Error fetching feedbacks', error: err.message });
     }
+});
+
+// ============= PAYMENT ENDPOINTS =============
+
+// Create Stripe checkout session for payment
+app.post('/payments/create-checkout-session', async (req, res) => {
+    try {
+        const { requestId, amount } = req.body;
+
+        if (!requestId) {
+            return res.status(400).json({ message: 'Request ID is required' });
+        }
+
+        // Validate the help request exists
+        const helpRequest = await HelpRequestModel.findById(requestId);
+        if (!helpRequest) {
+            return res.status(404).json({ message: 'Help request not found' });
+        }
+
+        if (helpRequest.status !== 'completed') {
+            return res.status(400).json({ message: 'Payment can only be made for completed requests' });
+        }
+
+        // Create Stripe checkout session
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [
+                {
+                    price_data: {
+                        currency: 'usd',
+                        product_data: {
+                            name: `Payment for: ${helpRequest.title}`,
+                            description: `Help request completed by ${helpRequest.assignedVolunteer?.volunteerName || 'volunteer'}`,
+                        },
+                        unit_amount: (amount || 1000) * 100, // Convert to cents
+                    },
+                    quantity: 1,
+                },
+            ],
+            mode: 'payment',
+            success_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/?payment=success&requestId=${requestId}`,
+            cancel_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/?payment=cancelled`,
+            metadata: {
+                requestId: requestId.toString(),
+                requesterId: helpRequest.requesterId.toString(),
+                volunteerId: helpRequest.assignedVolunteer?.volunteerId?.toString() || ''
+            }
+        });
+
+        return res.json({ url: session.url, sessionId: session.id });
+    } catch (err) {
+        console.error('Error creating checkout session:', err);
+        return res.status(500).json({ message: 'Error creating checkout session', error: err.message });
+    }
+});
+
+// Webhook to handle successful payments (optional - for production)
+app.post('/payments/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    let event;
+
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+        console.error('Webhook signature verification failed:', err.message);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // Handle the event
+    if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+        console.log('Payment successful for session:', session.id);
+        
+        // You can update the help request with payment status here
+        if (session.metadata.requestId) {
+            try {
+                await HelpRequestModel.findByIdAndUpdate(session.metadata.requestId, {
+                    paymentStatus: 'paid',
+                    paidAt: new Date()
+                });
+            } catch (error) {
+                console.error('Error updating payment status:', error);
+            }
+        }
+    }
+
+    res.json({ received: true });
 });
 
 // Get notifications for a user
