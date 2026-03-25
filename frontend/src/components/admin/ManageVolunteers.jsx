@@ -8,6 +8,23 @@ const ManageVolunteers = () => {
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [expandedRequestId, setExpandedRequestId] = useState(null);
 
+  const formatSkills = (skills = []) => {
+    if (!Array.isArray(skills) || skills.length === 0) return 'Not provided';
+    return skills.map(skill => skill.charAt(0).toUpperCase() + skill.slice(1)).join(', ');
+  };
+
+  const formatJoinedDate = (dateValue) => {
+    if (!dateValue) return 'N/A';
+    const parsed = new Date(dateValue);
+    if (Number.isNaN(parsed.getTime())) return 'N/A';
+    return parsed.toLocaleDateString();
+  };
+
+  const isSkillMatch = (volunteer, request) => {
+    if (!request?.category || !Array.isArray(volunteer?.skills)) return false;
+    return volunteer.skills.map(skill => skill.toLowerCase()).includes(request.category.toLowerCase());
+  };
+
   useEffect(() => {
     loadData();
     const interval = setInterval(loadData, 5000); // Auto-refresh every 5 seconds
@@ -177,10 +194,12 @@ const ManageVolunteers = () => {
         <div className="bg-white rounded-lg shadow-md p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">👥 Available Volunteers</h3>
           <div className="space-y-3 max-h-96 overflow-y-auto">
-            {volunteers.length === 0 ? (
+            {volunteers.filter(vol => vol.isAvailable !== false).length === 0 ? (
               <p className="text-gray-500 text-sm">No volunteers available</p>
             ) : (
-              volunteers.map(vol => (
+              volunteers
+                .filter(vol => vol.isAvailable !== false)
+                .map(vol => (
                 <div
                   key={vol._id || vol.id || vol.email}
                   onClick={() => setSelectedVolunteer(vol)}
@@ -190,9 +209,38 @@ const ManageVolunteers = () => {
                       : 'border-gray-200 hover:border-green-300'
                   }`}
                 >
-                  <p className="font-semibold text-gray-900">{vol.name}</p>
-                  <p className="text-sm text-gray-600 mt-1">📧 {vol.email}</p>
-                  <p className="text-sm text-gray-600">📍 {vol.city || 'N/A'}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-gray-900">{vol.name}</p>
+                      <p className="text-sm text-gray-600 mt-1">📧 {vol.email}</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${vol.isVerified ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                      {vol.isVerified ? 'Verified' : 'Unverified'}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1">
+                    <p className="text-sm text-gray-600">📞 {vol.phone || 'N/A'}</p>
+                    <p className="text-sm text-gray-600">📍 {vol.city || 'N/A'}</p>
+                    <p className="text-sm text-gray-600 md:col-span-2">🏠 {vol.address || 'N/A'}</p>
+                    <p className="text-sm text-gray-600 md:col-span-2">🛠 Skills: {formatSkills(vol.skills)}</p>
+                    <p className="text-sm text-gray-600">
+                      ⭐ Rating: {vol.rating?.average ? `${Number(vol.rating.average).toFixed(1)}/5` : 'N/A'}
+                      {typeof vol.rating?.count === 'number' ? ` (${vol.rating.count} reviews)` : ''}
+                    </p>
+                    <p className="text-sm text-gray-600">✅ Completed: {vol.completedRequests || 0}</p>
+                    <p className="text-sm text-gray-600">🗓 Joined: {formatJoinedDate(vol.createdAt)}</p>
+                    <p className="text-sm text-gray-600">🟢 Status: {vol.isAvailable === false ? 'Unavailable' : 'Available'}</p>
+                  </div>
+
+                  {selectedRequest && (
+                    <p className={`text-xs mt-2 font-medium ${isSkillMatch(vol, selectedRequest) ? 'text-green-700' : 'text-amber-700'}`}>
+                      {isSkillMatch(vol, selectedRequest)
+                        ? `Skill match: Yes (${selectedRequest.category})`
+                        : `Skill match: Not matched to ${selectedRequest.category || 'request category'}`}
+                    </p>
+                  )}
+
                   {selectedRequest && (
                     <p className="text-xs text-green-600 mt-2">
                       Distance: {getDistanceText(vol, selectedRequest)}
